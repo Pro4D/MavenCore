@@ -1,0 +1,7 @@
+name: MavenCore
+version: '${project.version}'
+main: com.pro4d.mavencore.MavenCore
+authors: [ Pro4D ]
+
+commands:
+  displayinv:
