@@ -1,0 +1,31 @@
+# Refill Sign Text
+sign-text:
+- '&8[&4Refill&8]'
+- 'Click to refill'
+- ''
+- ''
+
+# Refill GUI Settings
+gui-size: 9
+inventory:
+  Name: '&cRefill'
+  Items:
+  - 'Slot:1, Item:373:16421, Amount: 1'
+  - 'Slot:2, Item:373:16421, Amount: 1'
+  - 'Slot:3, Item:373:16421, Amount: 1'
+  - 'Slot:4, Item:373:16421, Amount: 1'
+  - 'Slot:5, Item:373:16421, Amount: 1'
+  - 'Slot:6, Item:373:16421, Amount: 1'
+  - 'Slot:7, Item:373:16421, Amount: 1'
+  - 'Slot:8, Item:373:16421, Amount: 1'
+  - 'Slot:9, Item:364, Amount: 64'
+
+# Remove Glass Bottles
+remove-bottle: true
+
+# Stack Potions
+stack-potions: true
+
+# Inventory
+chat-message: "&c{player}'s Inventory"
+hover-message: "Click to view {player}'s inventory"

@@ -10,6 +10,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.craftbukkit.v1_8_R3.inventory.CraftItemStack;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -28,9 +29,7 @@ import org.bukkit.potion.Potion;
 import org.bukkit.potion.PotionType;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
@@ -51,15 +50,33 @@ public final class MavenCore extends JavaPlugin implements Listener {
     //to ensure players cannot run the command to show players inventory without clicking the message in chat
     public static final String PASSWORD = "Lnk_Wnywja_(:";
 
+    private MConfig config;
+
+    String[] signText = new String[4];
+
+    int refillGUISize = 9;
+    String refillGUIName;
+    Map<Integer, ItemStack> refillGUI;
+
+    boolean removeGlassBottles;
+    boolean stackPotions;
+
+    String invHoverMsg;
+    String invChatMsg;
+
     @Override
     public void onEnable() {
         getServer().getPluginManager().registerEvents(this, this);
+        config = new MConfig("config", this);
+        refillGUI = new HashMap<>();
+        loadConfig();
+
         new CopyInvCommand(this);
+
         inventories = new ArrayList<>();
 
         if(!getServer().getVersion().contains("1.8.8")) {
             useNMS = true;
-            getLogger().info("Using NMS");
 
             Class<?> craftItemStackClazz = ReflectionUtil.getOBCClass("inventory.CraftItemStack");
             asNMSCopyMethod = ReflectionUtil.getMethod(craftItemStackClazz, "asNMSCopy", ItemStack.class);
@@ -79,7 +96,7 @@ public final class MavenCore extends JavaPlugin implements Listener {
         if(b.getType() != Material.SIGN_POST  && b.getType() != Material.WALL_SIGN) return;
 
         Sign sign = (Sign) b.getState();
-        if(Arrays.stream(sign.getLines()).noneMatch(s -> s.contains("[Refill]"))) return;
+        if(!Arrays.equals(sign.getLines(), signText)) return;
 
         Player player = event.getPlayer();
         player.openInventory(createAndFillPotionInv());
@@ -146,10 +163,12 @@ public final class MavenCore extends JavaPlugin implements Listener {
         }
 
         if(message.contains(INVENTORY) || message.contains(INV)) {
-            String invName = ChatColor.AQUA + "[Inventory]";
+            String invName = invChatMsg;
+            if(invName.contains("{player}")) invName = invName.replace("{player}", player.getDisplayName());
 
-            TextComponent invClick = new TextComponent(invName); //PLACEHOLDER
+            TextComponent invClick = new TextComponent(invName);
 
+            invClick.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ComponentBuilder(invHoverMsg).create()));
             invClick.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/displayinv " + player.getName() + " " + MavenCore.PASSWORD));
 
             String[] messageSplit = message.split("(?=\\[inv])|(?<=\\[inv])|(?=\\[inventory])|(?<=\\[inventory])");
@@ -185,6 +204,7 @@ public final class MavenCore extends JavaPlugin implements Listener {
 
     @EventHandler
     private void onDrink(PlayerItemConsumeEvent event) {
+        if(!removeGlassBottles) return;
         if(event.getItem().getType().equals(Material.POTION)) {
             Bukkit.getServer().getScheduler().runTaskLaterAsynchronously(this, () -> event.getPlayer().setItemInHand(new ItemStack(Material.AIR)),1L);
         }
@@ -192,6 +212,7 @@ public final class MavenCore extends JavaPlugin implements Listener {
 
     @EventHandler
     private void onDrop(PlayerDropItemEvent event) {
+        if(!stackPotions) return;
         Item item = event.getItemDrop();
         ItemStack itemStack = item.getItemStack();
         if(itemStack.getType() != Material.POTION) return;
@@ -212,20 +233,18 @@ public final class MavenCore extends JavaPlugin implements Listener {
         droppedItems.removeAll(notBottles);
 
         int potionCount = droppedItems.size() + 1;
+        if(potionCount != 2) return;
 
-//        for(Entity e : droppedItems) {
-//            Item i = (Item) e;
-//            ItemStack pot = i.getItemStack();
-//            if(pot.getItemMeta() != null && pot.getItemMeta().hasDisplayName()) {
-//                String number = pot.getItemMeta().getDisplayName();
-//                try {
-//                    int count = Integer.parseInt(number) - 1;
-//                    potionCount = potionCount + count;
-//                } catch (NumberFormatException ignored) {}
-//            }
-//        }
-
-        if(potionCount < 5) return;
+        for(Entity e : droppedItems) {
+            Item i = (Item) e;
+            ItemStack pot = i.getItemStack();
+            if(pot.getItemMeta() == null || !pot.getItemMeta().hasDisplayName()) continue;
+            String number = pot.getItemMeta().getDisplayName();
+            try {
+                int count = Integer.parseInt(number);
+                potionCount = potionCount + (count - 1);
+            } catch (NumberFormatException ignored) {}
+        }
 
         droppedItems.forEach(Entity::remove);
 
@@ -233,20 +252,19 @@ public final class MavenCore extends JavaPlugin implements Listener {
         meta.setDisplayName(String.valueOf(potionCount));
         itemStack.setItemMeta(meta);
         item.setItemStack(itemStack);
-
     }
 
     @EventHandler
     private void onPickup(PlayerPickupItemEvent event) {
+        if(!stackPotions) return;
         if(event.getItem().getType() != EntityType.DROPPED_ITEM) return;
+
         ItemStack item = event.getItem().getItemStack();
         if(item.getType() != Material.POTION) return;
         if(item.getItemMeta() != null && item.getItemMeta().hasDisplayName()) {
             String name = item.getItemMeta().getDisplayName();
-
             try {
                 int count = Integer.parseInt(name);
-
                 Potion pot = Potion.fromItemStack(item);
 
                 Potion potion = new Potion(pot.getType(), pot.getLevel());
@@ -263,8 +281,8 @@ public final class MavenCore extends JavaPlugin implements Listener {
                 event.setCancelled(true);
             } catch (NumberFormatException ignored) {}
         }
-
     }
+
 
     private String getJSONStringFromItem(ItemStack item) {
         Object itemAsJsonString;
@@ -276,21 +294,118 @@ public final class MavenCore extends JavaPlugin implements Listener {
             getLogger().log(Level.SEVERE, "Failed to serialize ItemStack to NMS item", t);
             return null;
         }
-        getLogger().info("JSON: " + itemAsJsonString.toString());
         return itemAsJsonString.toString();
     }
 
     private Inventory createAndFillPotionInv() {
-        Inventory inv = Bukkit.createInventory(null, 36);
-        for(int i = 0; i < inv.getSize(); i++) {
-            Potion potion = new Potion(PotionType.INSTANT_HEAL, 1);
-            potion.setSplash(true);
-            ItemStack item = potion.toItemStack(1);
-            inv.setItem(i, item);
+        Inventory inv = Bukkit.createInventory(null, refillGUISize, ChatColor.translateAlternateColorCodes('&', refillGUIName));
+        for(int s: refillGUI.keySet()) {
+            inv.setItem(s - 1, refillGUI.get(s));
         }
         return inv;
     }
 
-    public List<Inventory> getInventories() {return inventories;}
+    private void loadConfig() {
+        FileConfiguration fileConfig = config.getConfig();
 
+        List<String> sign = new ArrayList<>();
+        sign.add("&8[&4Refill&8]");
+        sign.add("Click to refill");
+        sign.add("");
+        sign.add("");
+
+        if(fileConfig.isList("sign-text")) {
+            signText = fileConfig.getStringList("sign-text").toArray(new String[0]);
+        } else signText = sign.toArray(new String[0]);
+
+        for(int s = 0; s < signText.length;) {
+            if(signText[s].toCharArray().length > 15) signText[s] = sign.get(s);
+            signText[s] = ChatColor.translateAlternateColorCodes('&', signText[s]);
+            s++;
+        }
+
+        refillGUISize = fileConfig.getInt("gui-size", 9);
+        if(refillGUISize % 9 != 0) {
+            getLogger().warning(ChatColor.RED + "GUI Size can only be a multiple of 9, setting to default...");
+            refillGUISize = 9;
+        }
+        refillGUIName = fileConfig.getString("inventory.Name", "&cRefill");
+
+        Map<Integer, ItemStack> defaultItems = new HashMap<>();
+
+        Potion pot = new Potion(PotionType.INSTANT_HEAL, 1);
+        pot.setSplash(true);
+        for(int n = 0; n < refillGUISize;) {
+            defaultItems.put(n, pot.toItemStack(1));
+            n++;
+        }
+
+        if(fileConfig.contains("inventory.Items") && fileConfig.isList("inventory.Items")) {
+            List<String> items = fileConfig.getStringList("inventory.Items");
+            Map<Integer, ItemStack> itemMap = new HashMap<>();
+
+            for (String i : items) {
+                String[] iSplit = i.split(",");
+                if(iSplit.length != 3) continue;
+
+                int slot;
+                try {slot = Integer.parseInt(iSplit[0].split("Slot:")[1]);
+                } catch (NumberFormatException e) {continue;}
+
+                if(slot <= 0) {
+                    getLogger().warning("Inventory slot #" + slot + " exceeds inventory size of " + refillGUISize + ". Setting to appropriate value.");
+                    slot = 1;
+                }
+                if(slot > refillGUISize) {
+                    getLogger().warning("Inventory slot #" + slot + " exceeds inventory size of " + refillGUISize + ". Setting to appropriate value.");
+                    slot = refillGUISize - 1;
+                }
+
+                int itemID;
+
+                try {
+                    itemID = Integer.parseInt(iSplit[1].split(":")[1]);
+                } catch (NumberFormatException e) {continue;}
+
+                ItemStack itemStack = new ItemStack(Material.getMaterial(itemID));
+                if(iSplit[1].split(":").length == 3) {
+                    if (Material.getMaterial(itemID) == Material.POTION) {
+                        int potType;
+                        try {
+                            potType = Integer.parseInt(iSplit[1].split(":")[2]);
+                        } catch (NumberFormatException e) {continue;}
+                        Potion potion = new Potion(PotionType.INSTANT_HEAL);
+                        switch (potType) {
+                            case 8226:
+                                potion.setType(PotionType.SPEED);
+                                potion.setLevel(2);
+                                break;
+
+                            case 16421:
+                                potion.setLevel(2);
+                                potion.setType(PotionType.INSTANT_HEAL);
+                                potion.setSplash(true);
+                                break;
+                        }
+
+                        itemStack = potion.toItemStack(1);
+                    }
+                }
+
+                try {itemStack.setAmount(Integer.parseInt(iSplit[2].split("Amount: ")[1]));
+                } catch (NumberFormatException e) {continue;}
+
+                itemMap.put(slot, itemStack);
+            }
+            if(!itemMap.isEmpty()) refillGUI = itemMap;
+        } else refillGUI = defaultItems;
+
+        removeGlassBottles = fileConfig.getBoolean("remove-bottle", true);
+        stackPotions = fileConfig.getBoolean("stack-potions", true);
+
+        invChatMsg = ChatColor.translateAlternateColorCodes('&', fileConfig.getString("chat-message", "&c{player}'s Inventory"));
+        invHoverMsg = ChatColor.translateAlternateColorCodes('&', fileConfig.getString("hover-message", "Click to view {player}'s inventory"));
+    }
+
+    public List<Inventory> getInventories() {return inventories;}
 }
