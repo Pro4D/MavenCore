@@ -19,6 +19,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.*;
 import org.bukkit.inventory.Inventory;
@@ -165,6 +166,7 @@ public final class MavenCore extends JavaPlugin implements Listener {
         if(message.contains(INVENTORY) || message.contains(INV)) {
             String invName = invChatMsg;
             if(invName.contains("{player}")) invName = invName.replace("{player}", player.getDisplayName());
+            if(invHoverMsg.contains("{player}")) invHoverMsg = invHoverMsg.replace("{player}", player.getDisplayName());
 
             TextComponent invClick = new TextComponent(invName);
 
@@ -206,19 +208,25 @@ public final class MavenCore extends JavaPlugin implements Listener {
     private void onDrink(PlayerItemConsumeEvent event) {
         if(!removeGlassBottles) return;
         if(event.getItem().getType().equals(Material.POTION)) {
-            Bukkit.getServer().getScheduler().runTaskLaterAsynchronously(this, () -> event.getPlayer().setItemInHand(new ItemStack(Material.AIR)),1L);
+            Inventory inv = event.getPlayer().getInventory();
+            Bukkit.getServer().getScheduler().runTaskLaterAsynchronously(this, () -> {
+                for(int s = 0; s < inv.getSize();) {
+                    if(inv.getItem(s) != null && inv.getItem(s).getType() == Material.GLASS_BOTTLE) {
+                        inv.setItem(s, null);
+                    }
+                    s++;
+                }
+            }, 1L);
         }
     }
 
     @EventHandler
-    private void onDrop(PlayerDropItemEvent event) {
+    private void onDrop(ItemSpawnEvent event) {
         if(!stackPotions) return;
-        Item item = event.getItemDrop();
-        ItemStack itemStack = item.getItemStack();
-        if(itemStack.getType() != Material.POTION) return;
-        Potion potionDropped = Potion.fromItemStack(itemStack);
+        if(event.getEntity().getItemStack().getType() != Material.POTION) return;
+        Potion potionDropped = Potion.fromItemStack(event.getEntity().getItemStack());
 
-        List<Entity> droppedItems = item.getNearbyEntities(8, 2, 8).stream().filter(e -> e.getType() == EntityType.DROPPED_ITEM).collect(Collectors.toList());
+        List<Entity> droppedItems = event.getEntity().getNearbyEntities(12, 5, 12).stream().filter(e -> e.getType() == EntityType.DROPPED_ITEM).collect(Collectors.toList());
         List<Entity> notBottles = new ArrayList<>();
         for(Entity e : droppedItems) {
             Item i = (Item) e;
@@ -232,26 +240,24 @@ public final class MavenCore extends JavaPlugin implements Listener {
 
         droppedItems.removeAll(notBottles);
 
-        int potionCount = droppedItems.size() + 1;
-        if(potionCount != 2) return;
+        if(droppedItems.size() == 0) return;
+        event.getEntity().remove();
 
-        for(Entity e : droppedItems) {
-            Item i = (Item) e;
-            ItemStack pot = i.getItemStack();
-            if(pot.getItemMeta() == null || !pot.getItemMeta().hasDisplayName()) continue;
-            String number = pot.getItemMeta().getDisplayName();
+        Item i = (Item) droppedItems.get(0);
+        ItemStack item = i.getItemStack();
+        int potionCount = 2;
+
+        if(item.getItemMeta() != null && item.getItemMeta().hasDisplayName()) {
+            String name = item.getItemMeta().getDisplayName();
             try {
-                int count = Integer.parseInt(number);
-                potionCount = potionCount + (count - 1);
+                int count = Integer.parseInt(name);
+                potionCount = potionCount + count - 1;
             } catch (NumberFormatException ignored) {}
         }
 
-        droppedItems.forEach(Entity::remove);
-
-        ItemMeta meta = itemStack.getItemMeta();
+        ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(String.valueOf(potionCount));
-        itemStack.setItemMeta(meta);
-        item.setItemStack(itemStack);
+        item.setItemMeta(meta);
     }
 
     @EventHandler
@@ -272,12 +278,24 @@ public final class MavenCore extends JavaPlugin implements Listener {
                 if(!pot.getType().isInstant()) potion.setHasExtendedDuration(pot.hasExtendedDuration());
 
                 ItemStack potionItemStack = potion.toItemStack(1);
+                ItemStack[] potions = new ItemStack[count];
 
                 for(int c = 0; c < count;) {
-                    event.getPlayer().getInventory().addItem(potionItemStack);
+                    //event.getPlayer().getInventory().addItem(potionItemStack);
+                    potions[c] = potionItemStack;
                     c++;
                 }
-                event.getItem().remove();
+
+                Map<Integer, ItemStack> leftOver = event.getPlayer().getInventory().addItem(potions);
+                if(leftOver.isEmpty()) {
+                    event.getItem().remove();
+                } else {
+                    ItemMeta meta = item.getItemMeta();
+                    meta.setDisplayName(String.valueOf(leftOver.keySet().size()));
+                    item.setItemMeta(meta);
+                    event.getItem().setItemStack(item);
+                }
+
                 event.setCancelled(true);
             } catch (NumberFormatException ignored) {}
         }
@@ -329,7 +347,7 @@ public final class MavenCore extends JavaPlugin implements Listener {
             getLogger().warning(ChatColor.RED + "GUI Size can only be a multiple of 9, setting to default...");
             refillGUISize = 9;
         }
-        refillGUIName = fileConfig.getString("inventory.Name", "&cRefill");
+        refillGUIName = fileConfig.getString("Name", "&cRefill");
 
         Map<Integer, ItemStack> defaultItems = new HashMap<>();
 

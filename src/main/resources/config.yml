@@ -7,8 +7,8 @@ sign-text:
 
 # Refill GUI Settings
 gui-size: 9
+Name: '&cRefill'
 inventory:
-  Name: '&cRefill'
   Items:
   - 'Slot:1, Item:373:16421, Amount: 1'
   - 'Slot:2, Item:373:16421, Amount: 1'
